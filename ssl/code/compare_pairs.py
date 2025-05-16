@@ -27,7 +27,7 @@ import sys
 import importlib
 import matplotlib.pyplot as plt
 from models import Resnet18Model
-from ContrastiveLoss import ContrastiveLoss
+from code.ContrastiveLoss_here import ContrastiveLoss
 import torch.nn as nn
 
 if __name__ == '__main__':

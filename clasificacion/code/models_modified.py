@@ -25,7 +25,7 @@ def dimensions_beforePooling(delete_last_layer, model, nMaps):
 
 class Resnet18Custom (nn.Module):
 
-    def __init__(self, model_ft, branch1, branch2, fc1, fc2, rho, fc2_extra, fc_extra, fusion):
+    def __init__(self, model_ft, branch1, branch2, fc1, fc2, rho, fc2_extra, fc_extra, fusion, rings, arcs):
         super(Resnet18Custom, self).__init__()
 
         self.model_ft = model_ft
@@ -42,6 +42,8 @@ class Resnet18Custom (nn.Module):
             self.fc2_extra = fc2_extra
             self.fc_extra = fc_extra
         self.flatten = nn.Flatten()
+        self.rings = rings
+        self.arcs = arcs
     
     def forward(self,x, bsizes):
 
@@ -52,17 +54,23 @@ class Resnet18Custom (nn.Module):
         if self.fusion == 0: # no fusion
           out1 = torch.zeros(batch_size,1).to(device)
           dict = {'features': features, 'bsizes':bsizes}
-          out2 = self.branch2(dict) # output branch 2
-          out2 = self.flatten(out2)
+          if self.arcs[0] == 0 and self.rings[0] == 0:
+            out2 = self.branch2(features) # output branch 2
+          else:
+            out2 = self.branch2(dict) # output branch 2
+            out2 = self.flatten(out2)
           out2 = self.fc2(out2)
           return out1[:,0], out2[:,0], out2[:,0]
 
         out1_avgpool = self.branch1(features) # output branch 1
         channels_size = out1_avgpool.shape[1]
-        out1 = out1_avgpool.view(batch_size, channels_size) # size adjustment 
-        dict = {'features': features, 'bsizes':bsizes}
-        out2 = self.branch2(dict) # output branch 2
-        out2 = self.flatten(out2)
+        out1 = out1_avgpool.view(batch_size, channels_size) # size adjustment
+        if self.arcs[0] == 0 and self.rings[0] == 0:
+            out2 = self.branch2(features)
+        else:
+            dict = {'features': features, 'bsizes':bsizes}
+            out2 = self.branch2(dict) # output branch 2
+            out2 = self.flatten(out2)
 
         if self.fusion == 3:
             out2 = self.fc2(out2)
@@ -109,12 +117,11 @@ class AvgPoolCustom(nn.Module):
         self.angle_mat_mul = self.generate_angle_mat()
 
     def forward(self, x):
-
         bsizes = x['bsizes']
         x = x['features']
 
         bsize_x = bsizes['bsize_x'].cpu().numpy()
-        mm_per_pixel = ((bsize_x * 0.1)/2) / self.n_rings # revisar
+        mm_per_pixel = ((bsize_x * 0.1)/2) / self.n_rings # considering 0.1 mm per pixel since the image is 140x140 px and the map length is 14 mm
 
         device = torch.device('cuda:0')
 
@@ -134,7 +141,8 @@ class AvgPoolCustom(nn.Module):
                     angle_vect_mul[:, 0] = self.angle_mat_mul[:,j]
         
                     weights_mat = np.dot(angle_vect_mul, ring_vect_mul)
-                    weights_mat = weights_mat / np.sum(weights_mat)
+                    if (np.sum(weights_mat) != 0):
+                        weights_mat = weights_mat / np.sum(weights_mat)
                     weights_tensor = torch.tensor(weights_mat)
                     weights_tensor = weights_tensor.to(device).float()
 
@@ -313,11 +321,16 @@ def Resnet18Model(nMaps, rings, arcs, max_radius, max_angle, type, delete_last_l
                 fc1 = copy.deepcopy(model_ft.fc)
                 model_ft = torch.nn.Sequential(*list(model_ft.children())[:-2])
                 branch1 = nn.Sequential(avg_pool)
-
-            branch2 = nn.Sequential(
-                AvgPoolCustom(n_channels, n_rings, n_arcs, mm_per_pixel, degree_per_pixel, rings, arcs)
-                #nn.Flatten()
-            )
+            
+            if rings[0] == 0 and arcs[0] == 0:
+                branch2 = nn.Sequential(
+                    nn.Flatten()
+                )
+            else:
+                branch2 = nn.Sequential(
+                    AvgPoolCustom(n_channels, n_rings, n_arcs, mm_per_pixel, degree_per_pixel, rings, arcs)
+                    #nn.Flatten()
+                )
 
             rho = 0
             fc2_extra = 0
@@ -326,23 +339,42 @@ def Resnet18Model(nMaps, rings, arcs, max_radius, max_angle, type, delete_last_l
             if fusion == 0: # no fusion
                 branch1 = 0
                 fc1 = 0
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
+                if rings[0] == 0 and arcs[0] == 0:
+                    fc2 = nn.Linear(n_channels * n_rings * n_arcs, 1)
+                else:
+                    fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
             elif fusion == 1 : # mean scores
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
+                if rings[0] == 0 and arcs[0] == 0:
+                    fc2 = nn.Linear(n_channels * n_rings * n_arcs, 1)
+                else:
+                    fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
             elif fusion == 2: # fusion scores through fc layer (2)
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
+                if rings[0] == 0 and arcs[0] == 0:
+                    fc2 = nn.Linear(n_channels * n_rings * n_arcs, 1)
+                else:
+                    fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
             if fusion == 3: # activations addition
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+                if rings[0] == 0 and arcs[0] == 0:
+                    fc2 = nn.Linear(n_channels * n_rings * n_arcs, 512)
+                else: 
+                    fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 512)
             elif fusion == 4: # train parameter (rho) 
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
+                if rings[0] == 0 and arcs[0] == 0:
+                    fc2 = nn.Linear(n_channels * n_rings * n_arcs, 1)
+                else:
+                    fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
                 device = torch.device("cuda:0")
                 rho = nn.Parameter(torch.tensor(0).to(device).float(),requires_grad = True)
             elif fusion == 5: # obtain parameter (rho) by passing cocatenated vector (1024) through fc layer
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
-                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+                if rings[0] == 0 and arcs[0] == 0:
+                    fc2 = nn.Linear(n_channels * n_rings * n_arcs, 1)
+                    fc2_extra = nn.Linear(n_channels * n_rings * n_arcs, 512)
+                else:
+                    fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 1)
+                    fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
                 fc_extra = nn.Linear(1024,1)
         
-            model_ft = Resnet18Custom(model_ft, branch1, branch2, fc1, fc2, rho, fc2_extra, fc_extra, fusion)
+            model_ft = Resnet18Custom(model_ft, branch1, branch2, fc1, fc2, rho, fc2_extra, fc_extra, fusion, rings, arcs)
 
             if model_ssl != None:
                 model_ft.load_state_dict(model_ssl, strict=False)

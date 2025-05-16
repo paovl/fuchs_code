@@ -382,9 +382,12 @@ class cropEye(object):
         self.border=border
 
     def __call__(self, sample):
-        
+
         
         img1, img2 = sample
+
+        if self.border < 0:
+            return {'image': img1,'bsize_x': img1.shape[0]}, {'image':  img2, 'bsize_x': img2.shape[0]}
         
         crop_eye_images = {}
         bsize_x = {}
@@ -579,3 +582,38 @@ class cropEyePolar(object):
             crop_eye_images[f'image{idx}'] = image_cropped
 
         return crop_eye_images['image1'], crop_eye_images['image2']
+    
+import cv2
+import numpy as np
+
+class CartesianCoordinates(object):
+    def __call__(self, sample):
+        img1_polar, img2_polar = sample
+        
+        cartesian_images = {}
+
+        for idx, polar_image in enumerate([img1_polar, img2_polar]):
+            # Definir el tamaño de la imagen original cartesiana
+            h, w, channels = 224, 224, polar_image.shape[2]
+            
+            # Centro de la imagen (asumimos que la imagen original es cuadrada)
+            center = (w // 2, h // 2)
+            
+            # Radio máximo (hipotenusa de la imagen original)
+            max_radius = w / 2
+            # max_radius = np.sqrt((w / 2) ** 2 + (h / 2) ** 2)
+
+            # Transformar de polares a cartesianas
+            cartesian_image = cv2.warpPolar(
+                polar_image, 
+                (w, h),  # Tamaño de la imagen original
+                center, 
+                max_radius, 
+                cv2.WARP_INVERSE_MAP | cv2.WARP_FILL_OUTLIERS,
+                cv2.INTER_CUBIC
+            )
+
+            idx = idx + 1
+            cartesian_images[f'image{idx}'] = cartesian_image
+
+        return cartesian_images['image1'], cartesian_images['image2']

@@ -47,11 +47,11 @@ if '__main__':
     
     # Read bagging score for best model CNN and for logistic regressor
     dict_standar_file = 'dict_scores_standar_bagging.pkl'
-    data_dir1 = "results/RESNET/BIOMARKERS"
-    data_dir2 = "results/RESNET/ELE_1_ELE_4_CORNEA-DENS_0_PAC_0"
+    data_dir1 = "results/SEP/BIOMARKERS"
+    data_dir2 = "results/SEP/ELE_1_ELE_4_CORNEA-DENS_0_PAC_0/medical_rings3_angles3_fusion5_50epochs"
 
     model1_dir = ['biomarkers']
-    model2_dir = ['medical_rings3_angles3_bio_fusion5_50epochs']
+    model2_dir = ['no_deactivate_seed0_dseed0_th0.04_a500_sigmoidWeightedLoss(full DB)_bio']
 
     for i in np.arange(len(model1_dir)):
         save_scores_dir = f"{data_dir2}/{model2_dir[i]}/{'fusion_biomarkers'}"
@@ -88,6 +88,8 @@ if '__main__':
 
         print_data(dict_variable)
         write_data(write_file, dict_variable)
+
+        # fusion_scores_standar = 1/(1+np.exp(-fusion_scores_standar))
 
         AUCs_standar= roc_auc_score(labels.astype(int), fusion_scores_standar)
 

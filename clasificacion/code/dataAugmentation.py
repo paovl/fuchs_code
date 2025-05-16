@@ -21,6 +21,7 @@ from skimage.filters import gaussian
 from skimage.measure import label, regionprops
 from skimage.transform import resize
 import cv2
+import matplotlib.image as img
 
 def mask2box(mask):
     """
@@ -122,10 +123,37 @@ class RandomRotation(object):
     def __call__(self, sample):
         
         image = sample['image']
+        mask = image<0
+        mask = binary_fill_holes(mask)
         cv2.imwrite("imgs/map_original.png", np.uint16(65535*image[:, :, 1].clip(0,1)))
         angle=int((self.angle_range[1]-self.angle_range[0])*np.random.rand()+self.angle_range[0]) # Random rotation from the min angle range
         img_rot=transform.rotate(image, angle, mode='constant',preserve_range=True)
         cv2.imwrite("imgs/map_rotation.png", np.uint16(65535*img_rot[:, :, 1].clip(0,1)))
+
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_ELE1.png", np.uint16(65535*image[:, :, 0].clip(0,1)))
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_ELE4.png", np.uint16(65535*image[:, :, 1].clip(0,1)))
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_CD0.png", np.uint16(65535*image[:, :, 2].clip(0,1)))
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_PAC0.png", np.uint16(65535*image[:, :, 3].clip(0,1)))
+        
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_ELE1_rot.png", np.uint16(65535*img_rot[:, :, 0].clip(0,1)))
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_ELE4_rot.png", np.uint16(65535*img_rot[:, :, 1].clip(0,1)))
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_CD0_rot.png", np.uint16(65535*img_rot[:, :, 2].clip(0,1)))
+        cv2.imwrite("data_aug_images/"+ str(sample['id'])+ "_PAC0_rot.png", np.uint16(65535*img_rot[:, :, 3].clip(0,1)))
+
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_ELE1.png", (image[:, :, 0].clip(0,1)).astype(np.float64), cmap = 'jet')
+        img_ele = (image[:, :, 1].clip(0,1)).astype(np.float64)
+        img_ele[mask[:, :, 1]] = 1
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_ELE4.png", img_ele.astype(np.float64), cmap = 'jet_r')
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_CD0.png", (image[:, :, 2].clip(0,1)).astype(np.float64), cmap = 'gray')
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_PAC0.png", (image[:, :, 3].clip(0,1)).astype(np.float64), cmap = 'jet_r')
+
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_ELE1_rot.png", (img_rot[:, :, 0].clip(0,1)).astype(np.float64), cmap = 'jet')
+        img_ele_rot = (img_rot[:, :, 1].clip(0,1)).astype(np.float64)
+        img_ele_rot[mask[:, :, 1]] = 1
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_ELE4_rot.png", img_ele_rot.astype(np.float64), cmap = 'jet_r')
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_CD0_rot.png", (img_rot[:, :, 2].clip(0,1)).astype(np.float64), cmap = 'gray')
+        img.imsave("data_aug_heatmap_images/"+str(sample['id'])+ "_PAC0_rot.png", (img_rot[:, :, 3].clip(0,1)).astype(np.float64), cmap = 'jet_r')
+
         return {'id':sample["id"],'image': img_rot, 'label' : sample['label']}
 
 class RandomTranslation(object):
@@ -294,6 +322,10 @@ class cropEye(object):
     def __call__(self, sample):
         
         image = sample['image']
+
+        if self.border < 0:
+            return {'id':sample["id"], 'image': image, 'label' : sample['label'], 'bsize_x': image.shape[1], 'bsize_y': image.shape[0]} 
+        
         pac=image[:,:,self.idxPAC]
         # plt.figure();plt.imshow(pac.clip(0,1),cmap='gray')
         mask=pac>0
@@ -371,14 +403,30 @@ class PolarCoordinates(object):
         polar_image = polar_image[0:int(idx_angle), :]
         if len(polar_image.shape)<3:
             polar_image=polar_image[:,:,np.newaxis]
-        """
+        polar_mask = polar_image<0
+        polar_mask = binary_fill_holes(polar_mask)
+        
         polar_image_plt = polar_image.astype(np.float32)/255.0
         polar_image_plt=polar_image_plt.clip(0,1)
-        plt.figure(2)
-        plt.imshow(polar_image_plt[:,:,0]/polar_image_plt[:,:,0].max(),cmap='gray')
-        """
+        # plt.figure(2)
+        # plt.imshow(polar_image_plt[:,:,0]/polar_image_plt[:,:,0].max(),cmap='gray')
         #plt.show()
-        #cv2.imwrite("polar_images/polar_"+ str(sample['id'])+ ".png", np.uint16(65535*(polar_image_plt[:,:,0]/polar_image_plt[:,:,0].max())))
+        cv2.imwrite("polar_images/polar_"+ str(sample['id'])+ "_ELE1.png", np.uint16(65535*(polar_image_plt[:,:,0]/polar_image_plt[:,:,0].max())))
+        cv2.imwrite("polar_images/polar_"+ str(sample['id'])+ "_ELE4.png", np.uint16(65535*(polar_image_plt[:,:,1]/polar_image_plt[:,:,0].max())))
+        cv2.imwrite("polar_images/polar_"+ str(sample['id'])+ "_CD0.png", np.uint16(65535*(polar_image_plt[:,:,2]/polar_image_plt[:,:,0].max())))
+        cv2.imwrite("polar_images/polar_"+ str(sample['id'])+ "_PAC0.png", np.uint16(65535*(polar_image_plt[:,:,3]/polar_image_plt[:,:,0].max())))
+
+        img.imsave("heatmap_images/heatmap_"+ str(sample['id'])+ "_ELE1.png", (polar_image_plt[:,:,0]/polar_image_plt[:,:,0].max()).astype(np.float64), cmap = 'jet')
+        img_ele= (polar_image[:, :, 1].clip(0,1)).astype(np.float64)
+        img_ele[polar_mask[:, :, 1]] = -0.1980
+        img.imsave("heatmap_images/heatmap_"+ str(sample['id'])+ "_ELE4.png", img_ele.astype(np.float64), cmap = 'jet', vmin = -0.1980, vmax = 1)
+        img_cd= (polar_image[:, :, 2].clip(0,1)).astype(np.float64)
+        img_cd[polar_mask[:, :, 2]] = -0.0628
+        img.imsave("heatmap_images/heatmap_"+ str(sample['id'])+ "_CD0.png", img_cd.astype(np.float64), cmap = 'gray', vmax = 1.0583, vmin = -0.0628)
+        img_pac= (polar_image[:, :, 3].clip(0,1)).astype(np.float64)
+        img_pac[polar_mask[:, :, 3]] = 1.4527
+        img.imsave("heatmap_images/heatmap_"+ str(sample['id'])+ "_PAC0.png",img_pac.astype(np.float64), cmap = 'jet_r', vmin = -0.1267, vmax = 1.4527)
+
         #pdb.set_trace()
         # src, dsize, center, maxRadius, flags[, dst]	) -> 	dst
         return {'id':sample["id"],'image': polar_image , 'label' : sample['label'], 'bsize_x':sample['bsize_x'], 'bsize_y':sample['bsize_y']}

@@ -19,7 +19,7 @@ def run_script(script, parameters):
 
 if '___main___': 
     script = "trainCVBiomarkers_modified.py"
-    dir = 'RESNET'
+    dir = 'SEP'
     cfg_file = "conf.config_70iter"
     db = "global"
     bio = "0"
@@ -29,7 +29,7 @@ if '___main___':
 
     # PRUEBA 1
     print(script + ' data -------> ' + data_dir + ' --- seed = ' + str(seed))
-    parameters = ["cfg_file", cfg_file, "db", db, "bio", bio, "dir", dir, "data_dir", data_dir,"results_dir", results_dir, "seed", seed] 
+    parameters = ["cfg_file", cfg_file, "db", db, "dir", dir, "data_dir", data_dir,"results_dir", results_dir, "seed", seed] 
     run_script(script, parameters)
 
    

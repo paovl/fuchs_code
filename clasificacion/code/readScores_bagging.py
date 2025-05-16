@@ -67,16 +67,17 @@ def standar_maxmin_scores (scores_matrix, raw):
     # matrix with zeros where nan
     scores_matrix_noNan_rows = np.nan_to_num(scores_matrix, nan=0)
     scores_matrix_noNan_columns = np.nan_to_num(scores_matrix, nan=0)
+
     # Rows
     sum_noNan_rows = np.sum(~np.isnan(scores_matrix), axis=1)
     valid_sum_noNan_rows = np.where(sum_noNan_rows > 0)
 
     # mean by rows
-    mean_scores_rows[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_rows, axis=1) / sum_noNan_rows
+    mean_scores_rows[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_rows[valid_sum_noNan_rows,:][0], axis=1) / sum_noNan_rows[valid_sum_noNan_rows]
     # std by rows
     scores_matrix_noNan_rows_std = (scores_matrix_noNan_rows - mean_scores_rows[:, np.newaxis])**2
     scores_matrix_noNan_rows_std[idx_Nan] = 0
-    std_scores_rows[valid_sum_noNan_rows] = np.sqrt(np.sum(scores_matrix_noNan_rows_std, axis=1) / sum_noNan_rows)
+    std_scores_rows[valid_sum_noNan_rows] = np.sqrt(np.sum(scores_matrix_noNan_rows_std[valid_sum_noNan_rows,:][0], axis=1) / sum_noNan_rows[valid_sum_noNan_rows])
 
     scores_matrix_noNan_rows_standar = (scores_matrix_noNan_rows - mean_scores_rows[:, np.newaxis]) / std_scores_rows[:, np.newaxis]
     scores_matrix_noNan_rows_standar[idx_Nan] = 0
@@ -89,8 +90,8 @@ def standar_maxmin_scores (scores_matrix, raw):
     scores_matrix_noNan_rows_maxmin[idx_Nan] = 0
 
     # mean scores by rows
-    mean_scores_rows_standar[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_rows_standar, axis=1) / sum_noNan_rows
-    mean_scores_rows_maxmin[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_rows_maxmin, axis=1) / sum_noNan_rows
+    mean_scores_rows_standar[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_rows_standar[valid_sum_noNan_rows,:][0], axis=1) / sum_noNan_rows[valid_sum_noNan_rows]
+    mean_scores_rows_maxmin[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_rows_maxmin[valid_sum_noNan_rows,:][0], axis=1) / sum_noNan_rows[valid_sum_noNan_rows]
     
     # Columns
     sum_noNan_columns = np.sum(~np.isnan(scores_matrix), axis=0)
@@ -114,8 +115,8 @@ def standar_maxmin_scores (scores_matrix, raw):
     scores_matrix_noNan_columns_maxmin[idx_Nan] = 0
 
     # mean scores by rows
-    mean_scores_columns_standar[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_columns_standar, axis=1) / sum_noNan_rows
-    mean_scores_columns_maxmin[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_columns_maxmin, axis=1) / sum_noNan_rows
+    mean_scores_columns_standar[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_columns_standar[valid_sum_noNan_rows], axis=1) / sum_noNan_rows[valid_sum_noNan_rows]
+    mean_scores_columns_maxmin[valid_sum_noNan_rows] = np.sum(scores_matrix_noNan_columns_maxmin[valid_sum_noNan_rows], axis=1) / sum_noNan_rows[valid_sum_noNan_rows]
     return mean_scores_rows, mean_scores_rows_standar, mean_scores_rows_maxmin, mean_scores_columns_standar, mean_scores_columns_maxmin, valid_sum_noNan_rows
 
 if '__main__':
@@ -124,7 +125,7 @@ if '__main__':
     """
     eConfig = {
         'dir':'SEP',
-        'dir_results':'default'
+        'dir_results':'no_deactivate_seed0_dseed0_th0.07_a1000_sigmoidWeightedLoss(full DB)_70train'
         }
     
     args = sys.argv[1::]
@@ -135,18 +136,18 @@ if '__main__':
         print (str(eConfig[key]))
           
     # Read scores matrix with dimensions KxN. K = dataset length, N = number of iterations (70)
-    # Generate bagging scores for CNN
+    #Generate bagging scores for CNN
     scores_files = ['dict_raw_scores.pkl', 'dict_scores_matrix.pkl']
     data_dirs = ["results/" + eConfig['dir'] + "/ELE_1_ELE_4_CORNEA-DENS_0_PAC_0"]
     input_dirs = ['medical_rings3_angles3_fusion5_50epochs/'  + eConfig['dir_results']]
     
     # Uncomment if you want to generate bagging scores for logistic regressor
-    """
+    
     # Generate bagging scores for logistic regressor
-    scores_file = 'dict_scores_matrix.pkl'
-    data_dir = "results/RESNET/BIOMARKERS"
-    input_dir = ["biomarkers"]
-    """
+    # scores_files = ['dict_scores_matrix.pkl']
+    # data_dirs = ["results/SEP/BIOMARKERS"]
+    # input_dirs = ["biomarkers"]
+    
     for i in np.arange(len(data_dirs)):
 
         input_dir = input_dirs[i]
@@ -180,7 +181,7 @@ if '__main__':
 
         device  = torch.device("cuda:0")
 
-        scores_norm = (mean_scores_columns_standar - mean_scores_columns_standar.min()) / (mean_scores_columns_standar.max() - mean_scores_columns_standar.min())
+        scores_norm = 1 / (1 + np.exp(-mean_scores_columns_standar))
         dict_variable = {'img_id': ids_list, 'score': scores_norm, 'label': labels_list}
 
         # print norm scores for standardized logits
@@ -189,7 +190,7 @@ if '__main__':
 
         test_labels = dict_variable['label']
 
-        valid_sum_noNan_rows = valid_sum_noNan_rows[0]
+        valid_sum_noNan_rs = valid_sum_noNan_rows[0]
 
         AUCs= roc_auc_score(test_labels[valid_sum_noNan_rows].astype(int), mean_scores_rows[valid_sum_noNan_rows])
         #AUCs_rows_standar= roc_auc_score(test_labels[valid_sum_noNan_rows].astype(int), mean_scores_rows_standar[valid_sum_noNan_rows])
@@ -229,7 +230,7 @@ if '__main__':
             file.write("\n\nSIGMOID SCORES ")
             file.write("\nAUC sigmoid: " + str(AUCs))
             #file.write("\n AUC rows standar sigmoid: " + str(AUCs_rows_standar_sigmoid))
-            #file.write("\n AUC rows maxmin sigmoid: " + str(AUCs_rows_maxmin_sigmoid))
+            #file.wriowte("\n AUC rows maxmin sigmoid: " + str(AUCs_rows_maxmin_sigmoid))
             file.write("\nAUC standarization sigmoid: " + str(AUCs_columns_standar_sigmoid))
             file.write("\nAUC norm maxmin sigmoid: " + str(AUCs_columns_maxmin_sigmoid))
         

@@ -21,48 +21,212 @@ if '___main___':
 
     script = "readScores_bagging.py"
     cropEyePolar = []
-
     deactivate = [70]
     th = [0.07]
     a = [1000]
 
-    # dseed = [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300]
-    # seed = [200]
-    # for j in deactivate:
+    # dir = "pretrained_noCrop"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_noPooling"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_3rings"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_4rings"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_7rings"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_3arcs"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_4arcs"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_6arcs"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_3rings_3arcs"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_4rings_4arcs"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "pretrained_polarPooling_allRingsArcs"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+
+    # dir = "modified_pretrained_noCrop"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_3rings_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_4rings_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_7rings_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_3arcs_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_4arcs_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_6arcs_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_3rings_3arcs_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_4rings_4arcs_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_polarPooling_allRingsArcs_fusion1"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_allRingsArcs_fusion3"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_allRingsArcs_fusion3"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "modified_pretrained_allRingsArcs_fusion4"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "none"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "no_deactivate_noCrop_seed0_dseed0_loss(full DB)"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "no_deactivate_seed0_dseed0_loss(full DB)"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # dir = "no_deactivate_seed0_dseed0_weightedLoss(full DB)"
+    # print(script + ' dir-------> ' + dir)
+    # parameters = ["dir_results", dir]
+    # run_script(script, parameters)
+
+    # By hospitals 
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+    # th = [0.04]
+    # a = [500]
+    # dseed = [0]
+    # seed = [0]
+    # hospital = ['HRyC']
+    # for h in hospital:
     #     for d in dseed:
     #         for i in seed:
     #             for y in a:
     #                 for x in th:
-    #                     dir = "deactivate" + str(j) +"_seed" + str(i)+ "_dseed" + str(d) + "_sigmoid_th" + str(x) + "_a" + str(y) + "_loss_sampleWeight(full DB)"
+    #                     dir = "no_deactivate" +"_seed" + str(i)+ "_dseed" + str(d) + "_th" + str(x) + "_a" + str(y) + "_sigmoidWeightedLoss(full DB)_"+ h
     #                     print(script + ' data -------> ' + dir)
     #                     parameters = ["dir_results", dir]
     #                     run_script(script, parameters)
 
-    # seed = [0, 10, 20, 30, 40, 50, 60, 70 , 80, 90, 130, 140, 150, 190, 200, 210, 220, 240, 270, 300, 330, 340, 350, 360, 370, 380, 400, 100, 110, 120, 160, 170, 180, 230, 250, 260, 280, 290, 310, 320, 390]
-    # for j in deactivate:
+    # th = [0.07]
+    # a = [1000]
+    # dseed = [0]
+    # seed = [0]
+    # for d in dseed:
     #     for i in seed:
     #         for y in a:
     #             for x in th:
-    #                 dir = "deactivate" + str(j) +"_seed" + str(i)+ "_sigmoid_th" + str(x) + "_a" + str(y) + "_loss_sampleWeight(full DB)"
+    #                 dir = "no_deactivate" +"_seed" + str(i)+ "_dseed" + str(d) + "_th" + str(x) + "_a" + str(y) + "_sigmoidWeightedLoss(full DB)_bio"
     #                 print(script + ' data -------> ' + dir)
     #                 parameters = ["dir_results", dir]
     #                 run_script(script, parameters)
 
-    seed = [370, 380, 390, 400]
+    th = [0.07]
+    a = [1000]
     dseed = [0]
-    for j in deactivate:
-        for d in dseed:
-            for i in seed:
-                for y in a:
-                    for x in th:
-                        dir = "deactivate" + str(j) +"_seed" + str(i) + "_dseed" + str(d)+ "_sigmoid_th" + str(x) + "_a" + str(y) + "_loss_sampleWeight(full DB)"
+    seed = [0]
+    hospital = ['HRyC', 'Cruces', 'GM', 'Clinico', 'Paz']
+    for d in dseed:
+        for i in seed:
+            for y in a:
+                for x in th:
+                    for h in hospital:
+                        dir = "no_deactivate" +"_seed" + str(i)+ "_dseed" + str(d) + "_th" + str(x) + "_a" + str(y) + "_sigmoidWeightedLoss(full DB)_"+ h + "_90train"
                         print(script + ' data -------> ' + dir)
                         parameters = ["dir_results", dir]
                         run_script(script, parameters)
 
-    dir = "none"
-    print(script + ' dir-------> ' + dir)
-    parameters = ["dir_results", dir]
-    run_script(script, parameters)
+    # seed = [0]
+    # dseed = [0]
+    # th = [0, 0.005, 0.01, 0.015, 0.02]
+    # for i in seed:
+    #     for d in dseed:
+    #         for x in th:
+    #                 dir = "no_deactivate" + "_seed" + str(i)+ "_dseed" + str(d) + "_th" + str(x) + "_binaryWeightedLoss(full DB)"
+    #                 print(script + ' data -------> ' + dir)
+    #                 parameters = ["dir_results", dir]
+    #                 run_script(script, parameters)   
+
+    
     
     

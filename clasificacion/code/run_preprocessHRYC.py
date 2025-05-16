@@ -54,3 +54,4 @@ if '___main___':
             run_script(scriptMulti, parametersMulti)
     print("FINISHED EXECUTION")
 
+

@@ -23,7 +23,7 @@ import numpy as np
 import cv2
 import pdb
 import pickle
-from dataAugmentation import Normalize, ToTensor, RandomRotation,RandomTranslation,centerMask,centerMinPAC, cropEye, reSize, PolarCoordinates, centerCrop, RandomJitter, Deactivate
+from dataAugmentation import Normalize, ToTensor, RandomRotation,RandomTranslation,centerMask,centerMinPAC, cropEye, reSize, PolarCoordinates, centerCrop, RandomJitter, Deactivate, CartesianCoordinates
 import time
 import copy
 from models import Resnet18Model,Resnet34Model,Resnet50Model,InceptionModel,AlexnetModel,VGGModel,Mobilev3large
@@ -57,35 +57,63 @@ class GradCAM:
 
     def __call__(self, input_tensor1, input_tensor2, bsize1, bsize2):
 
-        embedding1 = self.model(input_tensor1, bsize1) # forward
-        embedding2 = self.model(input_tensor2, bsize2) # forward
+        heatmap = torch.zeros(input_tensor1.shape[0], 2, self.activations.shape[2], self.activations.shape[3])
+
+        for i in range(len(input_tensor1)):
+            input_tensor = torch.cat((input_tensor1[i].unsqueeze(0), input_tensor2[i].unsqueeze(0)), dim=0)
+            bsize = torch.cat((bsize1[i].unsqueeze(0), bsize2[i].unsqueeze(0)), dim=0)
+            embedding = self.model(input_tensor, bsize) # forward
+            distance = torch.norm(embedding[0] - embedding[1], p=2)
+            similarity = torch.exp(-distance)
+            # Backward to compute gradients
+            self.model.zero_grad() # reset gradients
+            similarity.backward(retain_graph=True) # compute gradients with respect to all parameters
+
+            # Gradients' average
+            pooled_gradients = torch.mean(self.gradients, dim=[2, 3]) # Mean of last layer gradients (after batch norm) = Result one gradient for each channel
+
+            # Weights
+            for j in range(self.activations.shape[1]):
+                pooled_gradients = pooled_gradients.view(2, 512, 1, 1)
+                self.activations[:, j, :, :] *= pooled_gradients[:,j]
+
+            # Heatmap
+            heatmap[i, :, :, :] = torch.mean(self.activations, dim=[1]).squeeze()
+            # heatmap[i, :, :, :] = F.relu(heatmap[i, :, :, :])
+            heatmap = abs(heatmap)
+            heatmap[i, : , :, :] = (heatmap[i, : , :, :] -  torch.min(heatmap[i, : , :, :])) / ( torch.max(heatmap[i, :, :, :]) - torch.min(heatmap[i, : , :, :]))
+
+        # embedding1 = self.model(input_tensor1, bsize1) # forward
+        # embedding2 = self.model(input_tensor2, bsize2) # forward
         
-        distance = torch.norm(embedding1 - embedding2, p=2)
+        # distances = torch.norm(embedding1 - embedding2, dim=1, p=2)
         # distances = torch.norm(embedding1 - embedding2, p=2, dim=1)
         # distance = distances.mean()
         
-        # Backward to compute gradients
-        self.model.zero_grad() # reset gradients
-        distance.backward(retain_graph=True) # compute gradients with respect to all parameters
+        # # Backward to compute gradients
+        # self.model.zero_grad() # reset gradients
+        # distances.backward(retain_graph=True) # compute gradients with respect to all parameters
 
-        # Gradients' average
-        pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3]) # Mean of last layer gradients (after batch norm) = Result one gradient for each channel
+        # # Gradients' average
+        # pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3]) # Mean of last layer gradients (after batch norm) = Result one gradient for each channel
 
-        # Weights
-        for i in range(self.activations.shape[1]):
-            self.activations[:, i, :, :] *= pooled_gradients[i]
+        # # Weights
+        # for i in range(self.activations.shape[1]):
+        #     self.activations[:, i, :, :] *= pooled_gradients[i]
 
-        # Heatmap
-        heatmap = torch.mean(abs(self.activations), dim=1).squeeze()
-        # heatmap = F.relu(heatmap)
-        #heatmap = abs(heatmap)
-        heatmap /= torch.max(heatmap)
+        # # Heatmap
+        # heatmap = torch.mean(self.activations, dim=1).squeeze()
+        # # heatmap = F.relu(heatmap)
+        # #heatmap = abs(heatmap)
+        # heatmap /= torch.max(heatmap)
+
+        # heatmap = torch.mean(heatmap, dim=1)
 
         return heatmap.cpu().numpy()
 
 #train_model parameters are the network (model), the criterion (loss)
 # the optimizer, a learning scheduler (una estrategia de lr strategy), and the training epochs
-def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer, scheduler, device, results_path, normalizer, loss_dir, type, num_epochs=25,max_epochs_no_improvement=10,min_epochs=10, batchsize_train = None, batchsize_val = None, best_auc_model = 0, grad_cam_status = False, plot_image_best = [], save_plot_best = [], plot_batch_image_best = [], save_plot_batch_best = [], patients_val_batch = []):
+def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer, scheduler, device, results_path, normalizer, loss_dir, type, num_epochs=25,max_epochs_no_improvement=10,min_epochs=10, batchsize_train = None, batchsize_val = None, best_auc_model = 0, grad_cam_status = False, plot_image_best = [], save_plot_best = [], plot_batch_image_best = [], save_plot_batch_best = [], original_images = [], gradcam_images= [], gradcam_mean_images = [], plt_save_gradcam_images = [], patients_val_batch = [], loss_type = 0):
     since = time.time()
     
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -98,8 +126,14 @@ def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer
     prev_lr=optimizer.param_groups[0]['lr']
     loss_values_train=[]
     loss_values_val =[]
+
+    cartesian_coord = CartesianCoordinates()
     
-    target_layer = next(layer for layer in reversed(list(model.modules())) if isinstance(layer, nn.BatchNorm2d)) #last layer of the model
+    # target_layer = next(layer for layer in reversed(list(model.modules())) if isinstance(layer, nn.BatchNorm2d)) #last layer of the model
+    # target_layer = list(model.branch1.modules())
+    # target_layer = model.model_ft[6][1]
+    target_layer = model.branch1[0][1]
+    # target_layer = list(model.branch1[0].modules())[-1]
     grad_cam = GradCAM(model, target_layer)
     
     #Loop of epochs (each iteration involves train and val datasets)
@@ -208,7 +242,7 @@ def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer
                     output = model(images, bsizes) # Evaluate the model
                     output = F.normalize(output,dim=0)
                     
-                    loss_contrastive, real_labels, pred_labels, weights_loss, weights_loss_batchnorm, binary_weights, sigmoid_weights, batchSize, idx = criterion(output, error_PAC_array, error_BFS_array, epoch, nbatch, valset = valset)
+                    loss_contrastive, real_labels, pred_labels, weights_loss, weights_loss_batchnorm, binary_weights, sigmoid_weights, batchSize = criterion(output, error_PAC_array, loss_type = loss_type)
                     
                     # backward & parameters update only in train
                     if phase == 'train':
@@ -248,6 +282,7 @@ def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer
 
             # Gráfico
             weights_loss_points = np.linspace(0,0.09, 100)
+
             binary_weights_plt = np.where(weights_loss_points < criterion.th_weights, 0, 1)
             sigmoid_weights_plt =  1 / (1 + np.exp(-criterion.a_weights*(weights_loss_points - criterion.th_weights)))
 
@@ -271,7 +306,15 @@ def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer
             # plt.clf()
             
             #Compute the AUCs at the end of the epoch
-            auc = roc_auc_score(labels_m, outputs_m, sample_weight = sigmoid_weights_m)
+            if loss_type == 0:
+                auc = roc_auc_score(labels_m, outputs_m)
+            elif loss_type == 1:
+                auc = roc_auc_score(labels_m, outputs_m, sample_weight = weights_loss_norm_m)
+            elif loss_type == 2:
+                auc = roc_auc_score(labels_m, outputs_m, sample_weight = binary_weights_m)
+            elif loss_type == 3:
+                auc = roc_auc_score(labels_m, outputs_m, sample_weight = sigmoid_weights_m)
+                
             # auc_weights = roc_auc_score(labels_m, outputs_m, sample_weight= weights_loss_m)
             # auc_binary_weights = roc_auc_score(labels_m, outputs_m, sample_weight= binary_weights_m)
             # auc_weights_norm = roc_auc_score(labels_m, outputs_m, sample_weight= weights_loss_norm_m)
@@ -326,30 +369,66 @@ def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer
                             plot_batch_array = []
                             save_plot_array = []
                             save_plot_batch_array = []
+                            original_images_array = []
+                            gradcam_images_array = []
+                            gradcam_mean_images_array = []
+                            save_gradcam_images_array = []
                             patients_val_batch = []
 
                             heatmaps = grad_cam(img1, img2, bsize1, bsize2)
-                            
-                            # Mean heatmap for batch
-                            heatmap_mean = np.mean(heatmaps[:,:,:], axis=0)
+
+                            # Crear tensor auxiliar con dimensiones correctas
+                            # aux = np.zeros((heatmaps.shape[0], 2, heatmaps.shape[1], heatmaps.shape[2]))  # Corrige heatmaps[2]
+
+                            # # Asignar el mismo mapa de calor a ambas dimensiones (canales)
+                            # aux[:, 0, :, :] = heatmaps
+                            # aux[:, 1, :, :] = heatmaps
+
+                            # Mean heatmap para batch
+                            heatmap_mean = np.mean(heatmaps, axis=0)  # Usa torch.mean en lugar de np.mean
+
+                            # # Crear tensor auxiliar para expandir dimensiones
+                            # aux_mean = np.zeros((2, heatmap_mean.shape[0], heatmap_mean.shape[1]))  # Usa heatmap_mean.shape[1] en lugar de heatmap_mean.shape[0]
+
+                            # # Asignar el mismo heatmap_mean a ambas dimensiones
+                            # aux_mean[0, :, :] = heatmap_mean # Se asegura de hacer bien la media
+                            # aux_mean[1, :, :] = heatmap_mean
+
+                            # # Reemplazar heatmap_mean con la versión corregida
+
+                            # # Reemplazar heatmaps con la nueva versión
+                            # heatmaps = aux
+
+                            # heatmap_mean = aux_mean
 
                             # for each image
                             for i in np.arange(img1.shape[0]):
-                                plot_image = save_gradcam_images({'image':img1_copy[i,:,:,:], 'bsize_x':bsize1}, {'image':img2_copy[i,:,:,:], 'bsize_x':bsize2}, heatmaps[i,:,:], mapList, {key: value[i] for key, value in img_info.items()}, normalizer)
+                                plot_image, plt_img1, plt_img2, plt_gradcam_img1, plt_gradcam_img2 = save_gradcam_images({'image':img1_copy[i,:,:,:], 'bsize_x':bsize1}, {'image':img2_copy[i,:,:,:], 'bsize_x':bsize2}, heatmaps[i,:,:], mapList, {key: value[i] for key, value in img_info.items()}, normalizer, cartesian_coord)
                                 plot_array.append(plot_image)
                                 save_plot_array.append(img_info['patient'][i]+ '_' + str(img_info['eye'][i]) + '.png')
+                                original_images_array.append(plt_img1)
+                                original_images_array.append(plt_img2)
+                                gradcam_images_array.append(plt_gradcam_img1)
+                                gradcam_images_array.append(plt_gradcam_img2)
+                                save_gradcam_images_array.append(img_info['patient'][i]+ '_' + str(img_info['eye'][i]) + '_' + img_info['session_1'][i] + '.png')
+                                save_gradcam_images_array.append(img_info['patient'][i]+ '_' + str(img_info['eye'][i]) + '_' + img_info['session_2'][i] + '.png')
 
                             for i in np.arange(img1.shape[0]):
-                                plot_batch_image = save_gradcam_mean_images({'image':img1_copy_mean[i,:,:,:], 'bsize_x':bsize1}, {'image':img2_copy_mean[i,:,:,:], 'bsize_x':bsize2}, heatmap_mean, mapList, {key: value[i] for key, value in img_info.items()}, normalizer)
+                                plot_batch_image, _, _, plt_gradcam_mean_img1, plt_gradcam_mean_img2 = save_gradcam_mean_images({'image':img1_copy_mean[i,:,:,:], 'bsize_x':bsize1}, {'image':img2_copy_mean[i,:,:,:], 'bsize_x':bsize2}, heatmap_mean, mapList, {key: value[i] for key, value in img_info.items()}, normalizer)
                                 plot_batch_array.append(plot_batch_image)
-                                patient =img_info['patient'][i]
                                 save_plot_batch_array.append(img_info['patient'][i] + '_' + str(img_info['eye'][i]) + '.png')
+                                gradcam_mean_images_array.append(plt_gradcam_mean_img1)
+                                gradcam_mean_images_array.append(plt_gradcam_mean_img2)
 
                         patients_val_batch = {'idx_patient':images_patient_idx, 'idx':images_pairs_idx, 'label':labels_m, 'output': outputs_m}
                         plot_image_best = plot_array
                         save_plot_best = save_plot_array
                         plot_batch_image_best = plot_batch_array
                         save_plot_batch_best = save_plot_batch_array
+                        original_images = original_images_array
+                        gradcam_images = gradcam_images_array
+                        gradcam_mean_images = gradcam_mean_images_array
+                        plt_save_gradcam_images = save_gradcam_images_array
 
                 elif epoch_loss<best_loss:
                     epochs_no_improvement=0
@@ -373,9 +452,10 @@ def train_model(model, image_datasets, mapList, dataloaders,criterion, optimizer
 
     # load best model weights
     model.load_state_dict(best_model_wts)
-    return model, best_auc_model, plot_image_best, save_plot_best, plot_batch_image_best, save_plot_batch_best, patients_val_batch
 
-def save_gradcam_images(img1, img2, heatmap, mapList, img_info, normalizer):
+    return model, best_auc_model, plot_image_best, save_plot_best, plot_batch_image_best, save_plot_batch_best, original_images, gradcam_images, gradcam_mean_images, plt_save_gradcam_images, patients_val_batch
+
+def save_gradcam_images(img1, img2, heatmap, mapList, img_info, normalizer, cartesian_coord):
     img1, img2= normalizer.denormalize((img1, img2))
     img1, img2 = img1['image'], img2['image']
     alpha = 0.6
@@ -383,23 +463,46 @@ def save_gradcam_images(img1, img2, heatmap, mapList, img_info, normalizer):
     fig, axs = plt.subplots(2, img1.shape[0] *2, figsize=(16, 8))  # 2 filas (una por imagen), 4 columnas (una por canal)
 
     # Resize to have the same size as the image
-    heatmap_resize = cv2.resize(heatmap, (img1.shape[2], img1.shape[1]))
+    heatmap_resize_img1 = cv2.resize(heatmap[0,:,:], (img1.shape[2], img1.shape[1]))
+    heatmap_resize_img2 = cv2.resize(heatmap[1,:,:], (img1.shape[2], img1.shape[1]))
 
     # Heatmap normalized between 0 and 255
-    heatmap_resize = np.uint8(255 * heatmap_resize)
+    heatmap_resize_img1 = np.uint8(255 * heatmap_resize_img1)
+    heatmap_resize_img2 = np.uint8(255 * heatmap_resize_img2)
 
-    heatmap_resize = cv2.applyColorMap(heatmap_resize, colormap)
+    heatmap_resize_img1 = cv2.applyColorMap(heatmap_resize_img1, colormap)
+    heatmap_resize_img2 = cv2.applyColorMap(heatmap_resize_img2, colormap)
 
+    heatmap_resize_img1_bgr = cv2.cvtColor(heatmap_resize_img1, cv2.COLOR_RGB2BGR)
+    heatmap_resize_img2_bgr = cv2.cvtColor(heatmap_resize_img2, cv2.COLOR_RGB2BGR)
+
+    heatmap_resize_img1_bgr_cartesian, heatmap_resize_img2_bgr_cartesian = cartesian_coord((heatmap_resize_img1_bgr, heatmap_resize_img2_bgr))
+    
     img1 = img1.permute(1, 2, 0).cpu().numpy()  # Change [C, H, W] to [H, W, C]
-    img2 = img2.permute(1, 2, 0).cpu().numpy()  
+    img2 = img2.permute(1, 2, 0).cpu().numpy()
 
+    img1_bw, img2_bw = np.zeros_like(img1), np.zeros_like(img2)
+    img1_mask, img2_mask = img1 > 0, img2 > 0
+    img1_bw[img1_mask], img2_bw[img2_mask] = 0.65, 0.65
+
+    img1_cartesian, img2_cartesian = cartesian_coord((img1, img2))
+    # pdb.set_trace()
+       
     # plot original
     idx = 0
+
+    channels_superposed_img1 = np.zeros((img1.shape[0], img1.shape[1], 3, img1.shape[2]))
+    channels_superposed_img2 = np.zeros((img2.shape[0], img2.shape[1], 3, img2.shape[2]))
+
+    channels_superposed_img1_bw = np.zeros((img1_bw.shape[0], img1_bw.shape[1], 3, img1_bw.shape[2]))
+    channels_superposed_img2_bw = np.zeros((img2_bw.shape[0], img2_bw.shape[1], 3, img2_bw.shape[2]))
 
     for i in range(img1.shape[-1]):
 
         img1_channel = (img1[ :, :, i] * 255).astype(np.uint8)
         img2_channel = (img2[ :, :, i] * 255).astype(np.uint8)
+        img1_bw_channel = (img1_bw[ :, :, i] * 255).astype(np.uint8)
+        img2_bw_channel = (img2_bw[ :, :, i] * 255).astype(np.uint8)
 
         axs[0, idx].imshow(img1_channel, cmap='gray')
         axs[0, idx].axis('off')
@@ -412,26 +515,47 @@ def save_gradcam_images(img1, img2, heatmap, mapList, img_info, normalizer):
 
         idx = idx + 1
 
-        img1_channel_rgb= cv2.cvtColor(img1_channel, cv2.COLOR_GRAY2BGR)
-        img2_channel_rgb= cv2.cvtColor(img2_channel, cv2.COLOR_GRAY2BGR)
+        img1_channel_rgb= cv2.cvtColor(img1_channel, cv2.COLOR_GRAY2RGB)
+        img1_channel_bgr = cv2.cvtColor(img1_channel, cv2.COLOR_GRAY2BGR)
+        img2_channel_rgb= cv2.cvtColor(img2_channel, cv2.COLOR_GRAY2RGB)
+        img2_channel_bgr = cv2.cvtColor(img2_channel, cv2.COLOR_GRAY2BGR)
+        img1_bw_channel_bgr = cv2.cvtColor(img1_bw_channel, cv2.COLOR_GRAY2BGR)
+        img2_bw_channel_bgr = cv2.cvtColor(img2_bw_channel, cv2.COLOR_GRAY2BGR)
        
-        # img1_channel_rgb = np.stack([img1_channel] * 3, axis=-1)
-        # img2_channel_rgb = np.stack([img2_channel] * 3, axis=-1)
-
-        superposed_img1 = cv2.addWeighted(heatmap_resize, alpha, img1_channel_rgb, 1 - alpha, 0)
-        axs[0, idx].imshow(superposed_img1, cmap='jet')
+        superposed_img1 = cv2.addWeighted(heatmap_resize_img1, alpha, img1_channel_rgb, 1 - alpha, 0)
+        superposed_img1_bgr = cv2.addWeighted(heatmap_resize_img1_bgr, alpha, img1_channel_bgr, 1 - alpha, 0)
+        superposed_img1_bw_bgr = cv2.addWeighted(heatmap_resize_img1_bgr, alpha, img1_bw_channel_bgr, 1 - alpha, 0)
+        
+        axs[0, idx].imshow(superposed_img1)
         # axs[0, i].imshow(heatmap)
         axs[0, idx].axis('off')
         axs[0, idx].set_title(f'Heatmap - ' + mapList[i])
 
-        superposed_img2 = cv2.addWeighted(heatmap_resize, alpha, img2_channel_rgb, 1 - alpha, 0)
-        axs[1, idx].imshow(superposed_img2, cmap='jet')
+        superposed_img2 = cv2.addWeighted(heatmap_resize_img2, alpha, img2_channel_rgb, 1 - alpha, 0)
+        superposed_img2_bgr = cv2.addWeighted(heatmap_resize_img2_bgr, alpha, img2_channel_bgr, 1 - alpha, 0)
+        superposed_img2_bw_bgr = cv2.addWeighted(heatmap_resize_img2_bgr, alpha, img2_bw_channel_bgr, 1 - alpha, 0)
+        
+        axs[1, idx].imshow(superposed_img2)
         #axs[1, i].imshow(heatmap)
         axs[1, idx].axis('off')
         axs[1, idx].set_title(f'Heatmap - ' + mapList[i])
 
         idx = idx + 1
-    
+
+        channels_superposed_img1[:, :, :, i] = superposed_img1_bgr
+        channels_superposed_img2[:, :, :, i] = superposed_img2_bgr
+        channels_superposed_img1_bw[:, :, :, i] = superposed_img1_bw_bgr
+        channels_superposed_img2_bw[:, :, :, i] = superposed_img2_bw_bgr
+
+    channels_superposed_img1_cartesian = np.zeros((img1_cartesian.shape[0], img1_cartesian.shape[1], 3, img1_cartesian.shape[2]))
+    channels_superposed_img2_cartesian = np.zeros((img2_cartesian.shape[0], img2_cartesian.shape[1], 3, img2_cartesian.shape[2]))
+    channels_superposed_img1_cartesian_bw = np.zeros((img1_cartesian.shape[0], img1_cartesian.shape[1], 3, img1_cartesian.shape[2]))
+    channels_superposed_img2_cartesian_bw = np.zeros((img2_cartesian.shape[0], img2_cartesian.shape[1], 3, img2_cartesian.shape[2]))
+
+    for i in range(channels_superposed_img1.shape[3]):
+        channels_superposed_img1_cartesian[:, :, :, i], channels_superposed_img2_cartesian[:, :, :, i] = cartesian_coord((channels_superposed_img1[:, :, :, i], channels_superposed_img2[:, :, :, i]))
+        channels_superposed_img1_cartesian_bw[:, :, :, i], channels_superposed_img2_cartesian_bw[:, :, :, i] = cartesian_coord((channels_superposed_img1_bw[:, :, :, i], channels_superposed_img2_bw[:, :, :, i]))
+        
     fig.text(0.5, 0.95, img_info['session_1'], ha='center', va='center', fontsize=14, fontweight='bold')
 
     fig.text(0.5, 0.45, img_info['session_2'], ha='center', va='center', fontsize=14, fontweight='bold')
@@ -448,7 +572,7 @@ def save_gradcam_images(img1, img2, heatmap, mapList, img_info, normalizer):
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,)) 
 
     plt.close(fig)
-    return data
+    return data, img1_cartesian, img2_cartesian, channels_superposed_img1_cartesian_bw, channels_superposed_img2_cartesian_bw
 
 def save_gradcam_mean_images(img1, img2, heatmap, mapList, img_info, normalizer):
     img1, img2= normalizer.denormalize((img1, img2))
@@ -458,15 +582,25 @@ def save_gradcam_mean_images(img1, img2, heatmap, mapList, img_info, normalizer)
     fig, axs = plt.subplots(2, img1.shape[0] *2, figsize=(16, 8))  # 2 filas (una por imagen), 4 columnas (una por canal)
 
     # Resize to have the same size as the image
-    heatmap_resize = cv2.resize(heatmap, (img1.shape[2], img1.shape[1]))
+    heatmap_resize_img1 = cv2.resize(heatmap[0, :, :], (img1.shape[2], img1.shape[1]))
+    heatmap_resize_img2 = cv2.resize(heatmap[1, :, :], (img1.shape[2], img1.shape[1]))
 
     # Heatmap normalized between 0 and 255
-    heatmap_resize = np.uint8(255 * heatmap_resize)
+    heatmap_resize_img1 = np.uint8(255 * heatmap_resize_img1)
+    heatmap_resize_img2 = np.uint8(255 * heatmap_resize_img2)
 
-    heatmap_resize = cv2.applyColorMap(heatmap_resize, colormap)
+    heatmap_resize_img1 = cv2.applyColorMap(heatmap_resize_img1, colormap)
+    heatmap_resize_img2 = cv2.applyColorMap(heatmap_resize_img2, colormap)
+
+    heatmap_resize_img1_bgr = cv2.cvtColor(heatmap_resize_img1, cv2.COLOR_RGB2BGR)
+    heatmap_resize_img2_bgr = cv2.cvtColor(heatmap_resize_img2, cv2.COLOR_RGB2BGR)
 
     img1 = img1.permute(1, 2, 0).cpu().numpy()  # Change [C, H, W] to [H, W, C]
-    img2 = img2.permute(1, 2, 0).cpu().numpy()  
+    img2 = img2.permute(1, 2, 0).cpu().numpy() 
+
+    channels_superposed_img1 = np.zeros((img1.shape[0], img1.shape[1], 3, img1.shape[2]))
+    channels_superposed_img2 = np.zeros((img2.shape[0], img2.shape[1], 3, img2.shape[2]))
+
 
     # plot original
     idx = 0
@@ -487,25 +621,35 @@ def save_gradcam_mean_images(img1, img2, heatmap, mapList, img_info, normalizer)
 
         idx = idx + 1
 
-        img1_channel_rgb = cv2.cvtColor(img1_channel, cv2.COLOR_GRAY2BGR)
-        img2_channel_rgb = cv2.cvtColor(img2_channel, cv2.COLOR_GRAY2BGR)
+        img1_channel_rgb = cv2.cvtColor(img1_channel, cv2.COLOR_GRAY2RGB)
+        img1_channel_bgr = cv2.cvtColor(img1_channel, cv2.COLOR_GRAY2BGR)
+        img2_channel_rgb= cv2.cvtColor(img2_channel, cv2.COLOR_GRAY2RGB)
+        img2_channel_bgr = cv2.cvtColor(img2_channel, cv2.COLOR_GRAY2BGR)
+       
        
         # img1_channel_rgb = np.stack([img1_channel] * 3, axis=-1)
         # img2_channel_rgb = np.stack([img2_channel] * 3, axis=-1)
 
-        superposed_img1 = cv2.addWeighted(heatmap_resize, alpha, img1_channel_rgb, 1 - alpha, 0)
+        superposed_img1 = cv2.addWeighted(heatmap_resize_img1, alpha, img1_channel_rgb, 1 - alpha, 0)
+        superposed_img1_bgr = cv2.addWeighted(heatmap_resize_img1_bgr, alpha, img1_channel_bgr, 1 - alpha, 0)
+        
         axs[0, idx].imshow(superposed_img1, cmap='jet')
         # axs[0, i].imshow(heatmap)
         axs[0, idx].axis('off')
         axs[0, idx].set_title(f'Heatmap - ' + mapList[i])
 
-        superposed_img2 = cv2.addWeighted(heatmap_resize, alpha, img2_channel_rgb, 1 - alpha, 0)
+        superposed_img2 = cv2.addWeighted(heatmap_resize_img2, alpha, img2_channel_rgb, 1 - alpha, 0)
+        superposed_img2_bgr = cv2.addWeighted(heatmap_resize_img2_bgr, alpha, img2_channel_bgr, 1 - alpha, 0)
+        
         axs[1, idx].imshow(superposed_img2, cmap='jet')
         #axs[1, i].imshow(heatmap)
         axs[1, idx].axis('off')
         axs[1, idx].set_title(f'Heatmap - ' + mapList[i])
 
         idx = idx + 1
+
+        channels_superposed_img1[:, :, :, i] = superposed_img1_bgr
+        channels_superposed_img2[:, :, :, i] = superposed_img2_bgr
     
     fig.text(0.5, 0.95, img_info['session_1'], ha='center', va='center', fontsize=14, fontweight='bold')
 
@@ -523,7 +667,7 @@ def save_gradcam_mean_images(img1, img2, heatmap, mapList, img_info, normalizer)
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,)) 
 
     plt.close(fig)
-    return data
+    return data, img1, img2, channels_superposed_img1, channels_superposed_img2
 
 if __name__ == '__main__':
 
@@ -535,7 +679,7 @@ if __name__ == '__main__':
         'cfg_file':'conf.config1',
         'shift_da': -1,
         'angle_range': -1,
-        'deactivate': 70,
+        'deactivate': -1,
         'th_weights': '0.0',
         'a_weights': '0.0',
         'seed':'0',
@@ -544,17 +688,31 @@ if __name__ == '__main__':
         'delete_last_layer': '1',
         'fusion':'5',
         'max_radius': '7.0',
-        'max_angle': '360.0'
+        'max_angle': '360.0',
+        'loss_type':'0' # 0: original contrastive loss, 1: contrastive weighted loss, 2: contrastive binary weighted loss, 3: contrastive sigmoid weighted loss
         }
+
     eConfig['rings'] = [1.0,3.0,5.0]
     eConfig['arcs'] = [120.0, 240.0, 360.0]
     
     args = sys.argv[1::]
-    for i in range(0,len(args),2):
+    i = 0
+    while i < len(args) - 1:
         key = args[i]
-        val = args[i+1]
-        eConfig[key] = type(eConfig[key])(val)
-        print (str(eConfig[key]))
+        if key == 'rings' or key == 'arcs':
+            eConfig[key] = []
+            for j in range(i + 1, len(args)):
+                val = args[j]
+                if val.isdigit():
+                    eConfig[key].append(float(val))
+                else:
+                    break
+            i = j
+        else:
+            i = i + 1
+            val = args[i]
+            eConfig[key] = type(eConfig[key])(val)
+            i = i + 1
           
     print('eConfig')
     print(eConfig)
@@ -646,8 +804,7 @@ if __name__ == '__main__':
     else:
         centerMethod=0
         
-    if cropEyeBorder>=0:
-        list_transforms=[cropEye(cfg.mapList,cropEyeBorder)] + list_transforms 
+    list_transforms=[cropEye(cfg.mapList,cropEyeBorder)] + list_transforms 
         
     if centerMethod == 1:
         list_transforms = [centerMask(cfg.mapList)] + list_transforms 
@@ -676,6 +833,7 @@ if __name__ == '__main__':
         cfg.jitter_brightness = 0
     if not hasattr(cfg, 'jitter_contrast'):
         cfg.jitter_contrast = 0
+
 
     if cfg.jitter_brightness>0 or cfg.jitter_contrast>0:
         list_transforms = [RandomJitter(cfg.jitter_brightness, cfg.jitter_contrast, generator=rng)] + list_transforms 
@@ -738,6 +896,10 @@ if __name__ == '__main__':
     save_plot_best = []
     plot_batch_image_best = []
     save_plot_batch_best = []
+    original_images = []
+    gradcam_images = []
+    gradcam_mean_images = []
+    plt_save_gradcam_images = []
     patients_val_batch = {}
 
     if hasattr(cfg, 'modelType'):
@@ -773,7 +935,7 @@ if __name__ == '__main__':
     model_ft = model_ft.to(device)
 
     #The loss is Contrastive
-    criterion = ContrastiveLoss(margin = 0.4,alpha=1.0, th_weights = float(eConfig['th_weights']), a_weights = float(eConfig['a_weights']))
+    criterion = ContrastiveLoss(margin = 0.4, alpha=1.0, th_weights = float(eConfig['th_weights']), a_weights = float(eConfig['a_weights']))
 
     # We will use SGD with momentum as optimizer
     optimizer_ft = optim.SGD(model_ft.parameters(), lr=cfg.lr, momentum=cfg.momentum,weight_decay=cfg.wd)
@@ -782,21 +944,39 @@ if __name__ == '__main__':
     image_datasets = {'train' : train_dataset, 'val': val_dataset}
     dataloaders = {'train' : train_dataloader, 'val': val_dataloader}
             
-    model_ft, best_auc_model, plot_image_best, save_plot_best, plot_batch_image_best, save_plot_batch_best, patients_val_batch = train_model(model_ft, image_datasets, cfg.mapList, dataloaders, criterion, optimizer_ft, exp_lr_scheduler,
-                            device, results_path, normalizer, loss_dir, int(eConfig['type']), num_epochs=cfg.num_epochs, max_epochs_no_improvement=cfg.max_epochs_no_improvement,min_epochs=5, batchsize_train = cfg.train_bs, batchsize_val = cfg.val_bs, best_auc_model=best_auc_model, grad_cam_status = cfg.grad_cam, plot_image_best=plot_image_best, save_plot_best=save_plot_best, plot_batch_image_best = plot_batch_image_best, save_plot_batch_best= save_plot_batch_best, patients_val_batch = patients_val_batch)
+    model_ft, best_auc_model, plot_image_best, save_plot_best, plot_batch_image_best, save_plot_batch_best, original_images, gradcam_images, gradcam_mean_images, plt_save_gradcam_images, patients_val_batch = train_model(model_ft, image_datasets, cfg.mapList, dataloaders, criterion, optimizer_ft, exp_lr_scheduler,
+                            device, results_path, normalizer, loss_dir, int(eConfig['type']), num_epochs=cfg.num_epochs, max_epochs_no_improvement=cfg.max_epochs_no_improvement,min_epochs=5, batchsize_train = cfg.train_bs, batchsize_val = cfg.val_bs, best_auc_model=best_auc_model, grad_cam_status = cfg.grad_cam, plot_image_best=plot_image_best, save_plot_best=save_plot_best, plot_batch_image_best = plot_batch_image_best, save_plot_batch_best= save_plot_batch_best, original_images=original_images, gradcam_images=gradcam_images, gradcam_mean_images = gradcam_mean_images, plt_save_gradcam_images=plt_save_gradcam_images, patients_val_batch = patients_val_batch, loss_type = int(eConfig['loss_type']))
    
     if not os.path.exists(results_path + '/ssl_gradcam'):
             os.makedirs(results_path + '/ssl_gradcam')
 
     if not os.path.exists(results_path + '/ssl_gradcam_batch'):
             os.makedirs(results_path + '/ssl_gradcam_batch')
+
+    if not os.path.exists(results_path + '/gradcam'):
+            os.makedirs(results_path + '/gradcam')
+
+    if not os.path.exists(results_path + '/gradcam_mean'):
+            os.makedirs(results_path + '/gradcam_mean')
+
+    if not os.path.exists(results_path + '/original'):
+            os.makedirs(results_path + '/original')
+
         
-    for idx, image_data in enumerate(plot_image_best):
-        plt.imshow(image_data)
-        plt.title(save_plot_best[idx].replace('.png', ''))
-        plt.axis('off')
-        plt.savefig(results_path + '/ssl_gradcam/'+save_plot_best[idx], bbox_inches='tight', pad_inches=0.1)
-        plt.clf()
+    if not os.path.exists(results_path + '/ssl_gradcam'):
+            os.makedirs(results_path + '/ssl_gradcam')
+
+    if not os.path.exists(results_path + '/ssl_gradcam_batch'):
+            os.makedirs(results_path + '/ssl_gradcam_batch')
+
+    if not os.path.exists(results_path + '/gradcam'):
+            os.makedirs(results_path + '/gradcam')
+
+    if not os.path.exists(results_path + '/gradcam_mean'):
+            os.makedirs(results_path + '/gradcam_mean')
+
+    if not os.path.exists(results_path + '/original'):
+            os.makedirs(results_path + '/original')
 
     for idx, image_data in enumerate(plot_batch_image_best):
         plt.imshow(image_data)
@@ -804,6 +984,12 @@ if __name__ == '__main__':
         plt.axis('off')
         plt.savefig(results_path + '/ssl_gradcam_batch/'+save_plot_batch_best[idx], bbox_inches='tight', pad_inches=0.1)
         plt.clf()
+    
+    for idx in np.arange(len(original_images)):
+        for j, map in enumerate(cfg.mapList):
+            cv2.imwrite(results_path + 'original/' + plt_save_gradcam_images[idx].replace('.png', '_' + map +'.png'), np.uint16(65535*original_images[idx][:,:,j]))
+            cv2.imwrite(results_path + 'gradcam/' + plt_save_gradcam_images[idx].replace('.png', '_'+ map +'.png'), gradcam_images[idx][:,:, :,j])
+            cv2.imwrite(results_path + 'gradcam_mean/' + plt_save_gradcam_images[idx].replace('.png', '_'+ map +'.png'), gradcam_mean_images[idx][:,:,:,j])
 
     print("Best AUC model saved: ", best_auc_model)
     with open(text_file, "a") as file:

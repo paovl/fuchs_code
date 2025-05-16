@@ -223,15 +223,29 @@ def computeMaxMinBFS(data_path, dataset, fname, outname, rng,  th = 1.5, diskRad
             if(min_value < ELE_BFS_min[k]):
                 ELE_BFS_min[k] = min_value
 
-def heatMapGenerator(fpath,pixels_img,od,k,session,outname):
-    
+def heatMapGenerator(fpath,pixels_img,od,k,session,outname, ransac = 1):
     """ Generate heatmap images of each topographic map for visualization """
-
-    if od:
-        image = img.imsave(os.path.join(fpath,outname + '_OD_'+ session + '_'+ str(k) + '.png'), pixels_img.astype(np.float64),cmap = 'jet')
+    
+    global PAC_max, PAC_min, CUR_max, CUR_min, ELE_max, ELE_min, CORNEA_DENS_max, CORNEA_DENS_min,  ELE_BFS_max, ELE_BFS_min
+    
+    if outname.find('CORNEA-DENS') > 0 and k == 0:
+        vmin = (0 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+        vmax = (100 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+    elif outname.find('PAC') > 0 and k == 0:
+        vmin = (310.0 - PAC_min) / (PAC_max - PAC_min)
+        vmax = (1237.0 - PAC_min) / (PAC_max - PAC_min)
+    elif outname.find('ELE') > 0 and k == 4:
+        vmin = 1- ((0.335643123803089 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+        vmax = 1- ((-0.43819866569265153 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
     else:
-        image = img.imsave(os.path.join(fpath,outname + '_OS_' + session + '_'+ str(k) + '.png'), pixels_img.astype(np.float64),cmap = 'jet')
-
+        vmin = 0
+        vmax = 1
+    
+    if (outname.find('PAC') > 0 and k == 0) or (outname.find('ELE') > 0 and k == 4 and ransac == -1):
+        img.imsave(os.path.join(fpath,outname + '_'+ str(k) + '.png'), pixels_img.astype(np.float64),cmap = 'jet_r', vmin=vmin, vmax=vmax)
+    else:
+        img.imsave(os.path.join(fpath,outname + '_'+ str(k) + '.png'), pixels_img.astype(np.float64),cmap = 'jet', vmin=vmin, vmax=vmax)
+   
 def poly_matrix(x, y, order=2):
 
     """ Generate Matrix use with lstsq """
@@ -723,11 +737,22 @@ def poly_matrix_RANSAC(x, y, z, s=4):
     return G
     
 def imageGenerator(fpath,pixels_img, mask, od, k, session, outname):
-        
-    if od:
-        image = cv2.imwrite(os.path.join(fpath,outname + '_OD_' + session + '_'+ str(k) + '.png'), np.uint16(65535*pixels_img))
+    global PAC_max, PAC_min, CUR_max, CUR_min, ELE_max, ELE_min, CORNEA_DENS_max, CORNEA_DENS_min,  ELE_BFS_max, ELE_BFS_min
+    
+    if outname.find('CORNEA-DENS') > 0 and k == 0:
+        vmin = (0 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+        vmax = (100 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+    elif outname.find('PAC') > 0 and k == 0:
+        vmin = (310.0 - PAC_min) / (PAC_max - PAC_min)
+        vmax = (1237.0 - PAC_min) / (PAC_max - PAC_min)
+    elif outname.find('ELE') > 0 and k == 4:
+        vmin = 1- ((0.335643123803089 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+        vmax = 1- ((-0.43819866569265153 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
     else:
-        image = cv2.imwrite(os.path.join(fpath,outname + '_OS_' +  session + '_'+ str(k) + '.png'), np.uint16(65535*pixels_img))
+        vmin = 0
+        vmax = 1
+
+    img.imsave(os.path.join(fpath,outname + '_'+ str(k) + '.png'), pixels_img.astype(np.float64),cmap = 'gray', vmin=vmin, vmax=vmax)
 
 def dataGenerator(data_path, error_BFS_path, error_PAC_path, image_path, heatmap_path, polar_image_path, dataset,fname, outname, patient, rng, th = 1.5, diskRadius=45, ransac = 1, px=100):
 
@@ -806,25 +831,41 @@ def dataGenerator(data_path, error_BFS_path, error_PAC_path, image_path, heatmap
             np.save(os.path.join(data_path,outname + '_' + str(k) + '.npy'), pixels)
         
         pixels_img[~mask] = 0
-        
+
+        if outname.find('CORNEA-DENS') > 0 and k == 0:
+            pixels_img[~mask] = (0 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+        elif outname.find('PAC') > 0 and k == 0:
+            pixels_img[~mask] = (310.0 - PAC_min) / (PAC_max - PAC_min)
+        elif outname.find('ELE') > 0 and k == 4 and ransac == 1:
+            pixels_img[~mask] = 1 - ((0.335643123803089 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+
         imageGenerator(image_path,pixels_img,mask,od,k,session,outname)
-        heatMapGenerator(heatmap_path,pixels_img,od,k,session,outname)
+
+        if fname.find('PAC') > 0 and k == 0:
+            pixels_img[~mask] = (1237.0 - PAC_min) / (PAC_max - PAC_min)
+            heatMapGenerator(heatmap_path,pixels_img,od,k,session,outname)
+        elif fname.find('ELE') > 0 and (k == 4) and (ransac == -1):
+            pixels_img[~mask] = (3.386314919- ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4])
+            heatMapGenerator(heatmap_path,pixels_img,od,k,session,outname, ransac == -1)
+        else:
+            heatMapGenerator(heatmap_path,pixels_img,od,k,session,outname)
+
         polarImageGenerator(image_path,polar_image_path,outname,session, k, od)
 
 def polarImageGenerator(fpath,polar_path,outname,session, k, od):
 
     if od:
-        image = cv2.imread(os.path.join(fpath,outname + '_OD_' +session + '_'+ str(k) + '.png'))
+        image = cv2.imread(os.path.join(fpath,outname +  '_'+ str(k) + '.png'))
     else:
-        image = cv2.imread(os.path.join(fpath,outname + '_OS_' +session + '_'+ str(k) + '.png'))
+        image = cv2.imread(os.path.join(fpath,outname + '_'+ str(k) + '.png'))
     image  = image.astype(np.float32)/255.0
     value = np.sqrt(((image.shape[0]/2.0)**2.0)+((image.shape[1]/2.0)**2.0))
     polar_image = cv2.linearPolar(image,(image.shape[0]/2, image.shape[1]/2), value, cv2.WARP_FILL_OUTLIERS)
     # image = cv2.imwrite(os.path.join(polar_path,outname + '_' + str(k) + '.png'), np.uint16(65535*polar_image),cmap = 'jet')
     if od:
-        image = img.imsave(os.path.join(polar_path,outname + '_OD_' +session+'_'+ str(k) + '.png'), polar_image[:,::-1,0].astype(np.float64).T,cmap = 'jet')
+        image = img.imsave(os.path.join(polar_path,outname + '_'+ str(k) + '.png'), polar_image[:,::-1,0].astype(np.float64).T,cmap = 'jet')
     else:
-        image = img.imsave(os.path.join(polar_path,outname + '_OS_' + session+ '_'+ str(k) + '.png'), polar_image[:,::-1,0].astype(np.float64).T,cmap = 'jet')
+        image = img.imsave(os.path.join(polar_path,outname + '_'+ str(k) + '.png'), polar_image[:,::-1,0].astype(np.float64).T,cmap = 'jet')
         
     return image
 

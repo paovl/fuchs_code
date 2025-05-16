@@ -34,7 +34,7 @@ import sys
 import importlib
 import matplotlib.pyplot as plt
 from models import Resnet18Model
-from ContrastiveLoss import ContrastiveLoss
+from code.ContrastiveLoss_here import ContrastiveLoss
 
 def train_model(model, image_datasets, dataloaders,criterion, optimizer, scheduler, device,num_epochs=25,max_epochs_no_improvement=10,min_epochs=10, batchsize_train = None, batchsize_val = None, best_auc_model = 0):
     

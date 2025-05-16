@@ -116,7 +116,7 @@ def train_model(model, image_datasets, dataloaders,criterion, optimizer, schedul
                 # Register outputs only in train
                 with torch.set_grad_enabled(phase == 'train'):
                     if type != 2: 
-                        outputs = model(inputs, bsizes)[:,0]
+                        outputs = model(inputs)[:,0]
                         out1 = torch.zeros(outputs.shape).to(device)
                         out2 = torch.zeros(outputs.shape).to(device)
                     else:
@@ -226,7 +226,7 @@ def test_model(model, image_dataset, dataloader,device, type):
 
         with torch.set_grad_enabled(False):
             if type !=2: 
-                outputs = model(inputs, bsizes)[:,0]
+                outputs = model(inputs)[:,0]
                 out1 = torch.zeros(outputs.shape).to(device)
                 out2 = torch.zeros(outputs.shape).to(device)
             else:
@@ -283,9 +283,9 @@ if __name__ == '__main__':
         'fusion':'5',
         'max_radius': '7.0',
         'max_angle': '360.0',
-        'dir_weights_file':'none',
-        'weights_seed': '0',
-        'weights_dseed': '0',
+        'dir_weights_file':'default',
+        'weights_seed': '-1',
+        'weights_dseed': '-1',
         'weights_ssl_file': 'resnet18_self_supervised_fold.pth'
         }
     eConfig['rings'] = [1.0,3.0,5.0]
@@ -293,9 +293,9 @@ if __name__ == '__main__':
     
     args = sys.argv[1::]
     i = 0
-    while i < len(args):
+    while i < len(args) - 1:
         key = args[i]
-        if key == 'rings' or key == 'angles':
+        if key == 'rings' or key == 'arcs':
             eConfig[key] = []
             for j in range(i + 1, len(args)):
                 val = args[j]
@@ -310,17 +310,15 @@ if __name__ == '__main__':
             eConfig[key] = type(eConfig[key])(val)
             i = i + 1
     
-    if eConfig['weights_seed'] != '-1' or eConfig['weights_dseed'] != '-1':
-        eConfig['dir_weights_file'] = "deactivate70_seed"+ str(eConfig['weights_seed'])+ "_dseed"+ str(eConfig['weights_dseed']) + "_sigmoid_th0.07_a1000_loss_sampleWeight(full DB)"
     # Reading config file
     cfg = importlib.import_module(eConfig['cfg_file'])
     
     eConfig['max_radius_px'] = cfg.imSize[0] / 2 # Max radius in px
 
-    # Build csv files path
+    # Build csv files 
     db_path = "../datasets/dataset_" + eConfig['db']
     dir_file = eConfig['dir']
-    if eConfig['bio'] == 1:
+    if int(eConfig['bio']) == 1:
         csvFile='../datasets/' + 'dataset_' + eConfig['db'] + '/' + eConfig['dir'] + '/' + eConfig['data_dir'] + '/annotation_biomarkers.csv'
     else:
         csvFile='../datasets/' + 'dataset_' + eConfig['db'] + '/' + eConfig['dir'] + '/' + eConfig['data_dir'] + '/annotation.csv'
@@ -356,20 +354,25 @@ if __name__ == '__main__':
     results_path = results_path + '/' + eConfig['dir_weights_file']
     if not os.path.exists(results_path):
         os.makedirs(results_path)
+    
+    model_weights_path = results_path + '/model_weights'
+    if not os.path.exists(model_weights_path):
+        os.makedirs(model_weights_path)
 
     text_file = results_path + '/'+ eConfig['results_dir'] + '.txt' 
 
     # Read ssl model
     path_weights_file = '../../ssl/code/results/'
 
-    if (eConfig['dir_weights_file'] != 'none'):
+    if (eConfig['dir_weights_file'] != 'none') and ((eConfig['weights_seed'] != '-1') and (eConfig['weights_dseed'] != '-1')):
         if len(cfg.mapList) == 14: 
             model_ssl = torch.load(path_weights_file + eConfig['dir_weights_file']+ '/allMaps/' + eConfig['weights_ssl_file'])
         elif len(cfg.mapList) == 1:
             model_ssl = torch.load(path_weights_file + eConfig['dir_weights_file']+ '/' + cfg.mapList[0] + '/' + eConfig['weights_ssl_file'])
         else:
             model_ssl = torch.load(path_weights_file + eConfig['dir_weights_file']+ '/' + '_'.join(cfg.mapList) + '/' + eConfig['weights_ssl_file'])
-    else: 
+        print("Reading ssl weights...")
+    else:
         model_ssl = None
     
     #model.load_state_dict(checkpoint)
@@ -419,8 +422,7 @@ if __name__ == '__main__':
     else:
         cropEyeBorder = -1
 
-    if cropEyeBorder >= 0:
-        list_transforms = [cropEye(cfg.mapList,cropEyeBorder)] + list_transforms 
+    list_transforms = [cropEye(cfg.mapList,cropEyeBorder)] + list_transforms 
     
     # Center image
     if hasattr(cfg, 'centerMethod'):
@@ -640,6 +642,8 @@ if __name__ == '__main__':
             test2_scores = test2_scores - test2_scores.min()
             total1_scores_norm.append(test1_scores/ test1_scores.max()) # Test scores normalizated
             total2_scores_norm.append(test2_scores/ test2_scores.max()) # Test scores normalizated
+        # save model weights 
+        torch.save(model_ft.state_dict(), model_weights_path + '/model_weights_iter' + str(iter) + '.pth')
     
     # Show results
     print('mean testAUC accross iterations: %f \n'%(np.mean(AUCs)))

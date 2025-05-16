@@ -181,7 +181,7 @@ def computeMaxMinBFS(fpath, dataset, fname, info_dataset, rng,  th = 1.5, diskRa
            
             # RANSAC algorithm with sphere fit
             if ransac == 1:
-                pixels = ransac_bfs(pixels, rng, label, outname + '_' + str(k) + '.png', th = th, diskRadius = diskRadius, state = 1)
+                pixels, _ = ransac_bfs(pixels, rng, label, outname + '_' + str(k) + '.png', th = th, diskRadius = diskRadius, state = 1)
 
             # No RANSAC with quadratic fit
             if ransac == 0: 
@@ -253,8 +253,14 @@ def dataGenerator(fpath, ipath, hpath, ppath, dataset, fname, info_dataset, rng,
 
             # RANSAC algorithm with sphere fit
             if ransac == 1:
-                pixels = ransac_bfs(pixels, rng, label,outname + '_' + str(k) + '.png', th = th, diskRadius = diskRadius)
-            
+                pixels, bfs = ransac_bfs(pixels, rng, label,outname + '_' + str(k) + '.png', th = th, diskRadius = diskRadius)
+                bfs = (bfs - ELE_min[k]) / (ELE_max[k] - ELE_min[k]) # Normalization
+                bfs = bfs.clip(0,1)
+                bfs[~mask] = (0.0 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+                imageGenerator(ipath, bfs, outname.replace('ELE','BFS') + '_' + str(k) + '.png', label, ransac = -1)
+                bfs[~mask] = (3.386314919 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+                heatMapGenerator(hpath, bfs, outname.replace('ELE','BFS') + '_' + str(k) + '.png', label, ransac = -1)
+
             # No RANSAC algorithm with quadratic fit
             if ransac == 0: 
                 pacimage = np.load(os.path.join(fpath,outname.replace('ELE','PAC') + '_0.npy')) # Recover PAC map
@@ -271,12 +277,47 @@ def dataGenerator(fpath, ipath, hpath, ppath, dataset, fname, info_dataset, rng,
         np.save(os.path.join(fpath,outname + '_' + str(k) + '.npy'), pixels)
 
         pixels_img[~mask] = 0
+
+        if outname.find('CORNEA-DENS') > 0 and k == 0:
+            pixels_img[~mask] = (0 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+        elif outname.find('PAC') > 0 and k == 0:
+            pixels_img[~mask] = (452.0 - PAC_min) / (PAC_max - PAC_min)
+        elif outname.find('ELE') > 0 and k == 4:
+            if ransac == -1: 
+                pixels_img[~mask] = (0.0 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+            elif ransac == 1:
+                pixels_img[~mask] = 1 - ((0.335643123803089 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
         
-        imageGenerator(ipath, pixels_img, outname + '_' + str(k) + '.png', label)
-        heatMapGenerator(hpath, pixels_img, outname + '_' + str(k) + '.png', label)
+        imageGenerator(ipath, pixels_img, outname + '_' + str(k) + '.png', label, ransac = ransac)
         polarMapGenerator(ipath, ppath, outname + '_' + str(k) + '.png', label)
 
-def imageGenerator(ipath, pixels, outname, label):
+        if fname.find('PAC') > 0 and k == 0:
+            pixels_img[~mask] = (1237.0 - PAC_min) / (PAC_max - PAC_min)
+            heatMapGenerator(hpath, pixels_img, outname + '_' + str(k) + '.png', label)
+        elif fname.find('ELE') > 0 and k == 4 and ransac == -1:
+            pixels_img[~mask] = (3.386314919 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+        
+        heatMapGenerator(hpath, pixels_img, outname + '_' + str(k) + '.png', label, ransac = ransac)
+
+def imageGenerator(ipath, pixels, outname, label, ransac = 1):
+    global PAC_max, PAC_min, CUR_max, CUR_min, ELE_max, ELE_min, CORNEA_DENS_max, CORNEA_DENS_min,  ELE_BFS_max, ELE_BFS_min
+    
+    if outname.find('CORNEA-DENS_0') > 0:
+        vmin = (0 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+        vmax = (100 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+    elif outname.find('PAC_0') > 0:
+        vmin = (452.0 - PAC_min) / (PAC_max - PAC_min)
+        vmax = (1237.0 - PAC_min) / (PAC_max - PAC_min)
+    elif outname.find('ELE_4') > 0 or outname.find('BFS_4') > 0:
+        if ransac == -1:
+            vmin = (0.0 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+            vmax = (3.386314919 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+        else:
+            vmin = 1 - ((0.335643123803089 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+            vmax = 1 - ((-0.43819866569265153 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+    else:
+        vmin = 0
+        vmax = 1
 
     # Directory
     if label == 1:
@@ -286,9 +327,29 @@ def imageGenerator(ipath, pixels, outname, label):
     else:
         ipath = ipath + '/noLabel'
 
-    cv2.imwrite(os.path.join(ipath,outname), np.uint16(65535*pixels))
+    # cv2.imwrite(os.path.join(ipath,outname), np.uint16(65535*pixels), vmin=vmin, vmax=vmax)
 
-def heatMapGenerator(hpath, pixels, outname, label):
+    img.imsave(os.path.join(ipath, outname), pixels.astype(np.float64),cmap = 'gray', vmin=vmin, vmax=vmax)
+
+def heatMapGenerator(hpath, pixels, outname, label, ransac = 1):
+    global PAC_max, PAC_min, CUR_max, CUR_min, ELE_max, ELE_min, CORNEA_DENS_max, CORNEA_DENS_min,  ELE_BFS_max, ELE_BFS_min
+    
+    if outname.find('CORNEA-DENS_0') > 0:
+        vmin = (0 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+        vmax = (100 - CORNEA_DENS_min[0]) / (CORNEA_DENS_max[0] - CORNEA_DENS_min[0])
+    elif outname.find('PAC_0') > 0:
+        vmin = (452.0 - PAC_min) / (PAC_max - PAC_min)
+        vmax = (1237.0 - PAC_min) / (PAC_max - PAC_min)
+    elif outname.find('ELE_4') > 0 or outname.find('BFS_4') > 0:
+        if ransac == -1:
+            vmin = (0.0 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+            vmax = (3.386314919 - ELE_min[4]) / (ELE_max[4] - ELE_min[4])
+        else:
+            vmin = 1 - ((0.335643123803089 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+            vmax = 1 - ((-0.43819866569265153 - ELE_BFS_min[4]) / (ELE_BFS_max[4] - ELE_BFS_min[4]))
+    else:
+        vmin = 0
+        vmax = 1
 
     # Directory
     if label == 1:
@@ -297,8 +358,11 @@ def heatMapGenerator(hpath, pixels, outname, label):
         hpath = hpath + '/healthy'
     else:
         hpath = hpath + '/noLabel'
-
-    img.imsave(os.path.join(hpath, outname), pixels.astype(np.float64),cmap = 'jet')
+    
+    if outname.find('PAC_0') > 0 or ( (outname.find('ELE_4') > 0 or outname.find('BFS_4') > 0) and ransac == -1):
+        img.imsave(os.path.join(hpath, outname), pixels.astype(np.float64),cmap = 'jet_r', vmin=vmin, vmax=vmax)
+    else:
+        img.imsave(os.path.join(hpath, outname), pixels.astype(np.float64),cmap = 'jet', vmin=vmin, vmax=vmax)
 
 def polarMapGenerator(ipath, ppath, outname, label):
 
@@ -506,7 +570,7 @@ def ransac_bfs(eleMap, rng, img_label,outname, k=10, th = 0.05, diskRadius= 0, s
 
     plt.close("all")
 
-    return dif_image
+    return dif_image, bfs
 
 def random_partition(s, s_data, rng):
     """return random idxs"""
@@ -701,7 +765,7 @@ if __name__ == "__main__":
         pixels: background pixels value
     """
     eConfig = {
-        'dir':'RESNET',
+        'dir':'NEW',
         'th':'1.5',
         'r':'45', 
         'ransac':'1',

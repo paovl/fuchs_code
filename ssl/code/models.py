@@ -5,7 +5,6 @@ Created on Tue Apr 18 12:28:09 2023
 
 @authors: igonzalez, mariagonzalezgarcia
 """
-
 from torchvision import transforms, utils, models
 import torch
 import torch.nn as nn
@@ -28,7 +27,7 @@ def dimensions_beforePooling(delete_last_layer, model, nMaps):
 
 class Resnet18Custom (nn.Module):
 
-    def __init__(self, model_ft, branch1, branch2, fc2, fc, fusion):
+    def __init__(self, model_ft, branch1, branch2, rho, fc2_extra, fc_extra, fusion):
         super(Resnet18Custom, self).__init__()
 
         self.model_ft = model_ft
@@ -36,9 +35,12 @@ class Resnet18Custom (nn.Module):
         self.branch2 = branch2
         self.fusion = fusion
         self.sigmoid = nn.Sigmoid()
-        self.fc2_extra = fc2
+        self.fc2_extra = fc2_extra
+        self.rho = rho
+        if fusion == 2: 
+            self.fc_score = nn.Linear(1024, 512)
         if fusion == 5:
-            self.fc_final = fc
+            self.fc_extra = fc_extra
         self.flatten = nn.Flatten()
     
     def forward(self,x, bsizes):
@@ -59,16 +61,25 @@ class Resnet18Custom (nn.Module):
         channels_size = out1_avgpool.shape[1]
         out1 = out1_avgpool.view(batch_size, channels_size) # size adjustment 
         dict = {'features': features, 'bsizes':bsizes}
-        out2 = self.branch2(dict) # output branch 2
+        out2 = self.branch2(dict)
         out2 = self.flatten(out2)
         out2 = self.fc2_extra(out2)
-        
-        if self.fusion == 3:
+
+        if self.fusion == 1: 
+            out = torch.mean(torch.stack((out1, out2)), dim=0)
+        elif self.fusion == 2:
+            out = torch.cat((out2, out1), dim = 1)
+            out = self.fc_score(out)[:,0]
+        elif self.fusion == 3:
             out = out1 + out2
+        elif self.fusion == 4:
+            w = self.sigmoid(self.rho)
+            out = w * out1 + (1 - w) * out2
         elif self.fusion == 5:
-            out = torch.cat((out1, out2), dim=1)
-            out = self.fc_final(out)
-        
+            out_extra = torch.cat((out1, out2), dim=1)
+            self.rho = self.fc_extra(out_extra)
+            w = self.sigmoid(self.rho)
+            out = w * out1 + (1 - w) * out2
         return out
         
 class AvgPoolCustom(nn.Module):
@@ -110,7 +121,8 @@ class AvgPoolCustom(nn.Module):
                     angle_vect_mul[:, 0] = self.angle_mat_mul[:,j]
         
                     weights_mat = np.dot(angle_vect_mul, ring_vect_mul)
-                    weights_mat = weights_mat / np.sum(weights_mat)
+                    if (np.sum(weights_mat) != 0):
+                        weights_mat = weights_mat / np.sum(weights_mat)
                     weights_tensor = torch.tensor(weights_mat)
                     weights_tensor = weights_tensor.to(device).float()
 
@@ -236,16 +248,32 @@ def Resnet18Model(nMaps, rings, arcs, max_radius, max_angle, type, delete_last_l
                 model_ft = torch.nn.Sequential(*list(model_ft.children())[:-2])
                 branch1 = nn.Sequential(avg_pool)
             
-            if fusion == 5 or fusion == 3:
-                fc2 = nn.Linear(n_channels * len(rings) * len(arcs), 512)
-                fc = nn.Linear (1024, 512)
-                
-
             branch2 = nn.Sequential(
                 AvgPoolCustom(n_channels, n_rings, n_arcs, mm_per_pixel, degree_per_pixel, rings, arcs)
             )
+
+            rho = 0
+            fc2_extra = 0
+            fc_extra = 0
+
+            if fusion == 0:
+                branch1 = 0
+                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+            elif fusion == 1:
+                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+            elif fusion == 2:
+                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+            elif fusion == 3:
+                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+            if fusion == 4:
+                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+                device = torch.device("cuda:0")
+                rho = nn.Parameter(torch.tensor(0).to(device).float(),requires_grad = True)
+            elif fusion == 5:
+                fc2_extra = nn.Linear(n_channels * len(rings) * len(arcs), 512)
+                fc_extra = nn.Linear (1024, 1)
         
-            model_ft = Resnet18Custom(model_ft, branch1, branch2, fc2, fc, fusion)
+            model_ft = Resnet18Custom(model_ft, branch1, branch2, rho, fc2_extra, fc_extra, fusion)
 
     # Final decision
     

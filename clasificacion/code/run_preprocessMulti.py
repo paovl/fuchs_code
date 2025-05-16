@@ -31,7 +31,7 @@ if '___main___':
 
     # first original and quadratic fit
     files = ['original', 'noRansac', 'noRansac_diskRemoval']
-    
+
     for i in files:
         if i == 'original':
             var_ransac = -1

@@ -21,7 +21,7 @@ class ContrastiveLoss(torch.nn.Module):
         self.th_weights = th_weights
         self.a_weights = a_weights
 
-    def forward(self, output, error_PAC, error_BFS, epoch, nbatch, valset = False):
+    def forward(self, output, error_PAC, loss_type = 0):
         error = np.zeros((error_PAC.shape[0], 2)) # vector with PAC error by pairs 
         error[:,0] = error_PAC[:,0]
         error[:,1] = error_PAC[:,1]
@@ -36,7 +36,7 @@ class ContrastiveLoss(torch.nn.Module):
         pdist = F.pdist(output, p=2)
         idx = np.arange(0, n)
 
-        weights_loss_norm = weights_loss / np.sum(weights_loss)
+        weights_loss_batchnorm = weights_loss / np.sum(weights_loss)
 
         binary_weights = np.where(weights_loss < self.th_weights, 0, 1)
         sigmoid_weights = 1 / (1 + np.exp(-self.a_weights*(weights_loss - self.th_weights)))
@@ -45,13 +45,22 @@ class ContrastiveLoss(torch.nn.Module):
         idx = np.where(plabels==0)[0]
         intersected_idx = np.intersect1d(idx_weights_binary, idx)
         
-        # ppost = sum(plabels==0) / len(plabels)
-        # idx = np.where(plabels==0)[0]
-        # ppost = torch.tensor(sum(weights_loss_norm[idx]))
-        # ppost = sum(plabels[intersected_idx] == 0) / len(plabels[idx_weights_binary])
-        ppost = torch.tensor(sum(sigmoid_weights[idx]) / sum(sigmoid_weights))
+        if loss_type == 0:
+            ppost = sum(plabels==0) / len(plabels)
+        elif loss_type == 1:
+            idx = np.where(plabels==0)[0]
+            ppost = torch.tensor(sum(weights_loss_batchnorm[idx]))
+        elif loss_type == 2:
+            while sum(binary_weights) < 10:
+                self.th_weights = self.th_weights * 0.9
+                binary_weights = np.where(weights_loss < self.th_weights, 0, 1)
+                idx_weights_binary = np.where(binary_weights == 1)[0]
+                intersected_idx = np.intersect1d(idx_weights_binary, idx)
+            ppost = sum(plabels[intersected_idx] == 0) / len(plabels[idx_weights_binary])
+        elif loss_type == 3:
+            ppost = torch.tensor(sum(sigmoid_weights[idx]) / sum(sigmoid_weights))
 
-        weights_loss_norm = torch.from_numpy(weights_loss_norm).to(device)
+        weights_loss_batchnorm = torch.from_numpy(weights_loss_batchnorm).to(device)
         weights_loss = torch.from_numpy(weights_loss).to(device)
         binary_weights = torch.from_numpy(binary_weights).to(device)
         sigmoid_weights = torch.from_numpy(sigmoid_weights).to(device)
@@ -59,19 +68,19 @@ class ContrastiveLoss(torch.nn.Module):
         plabels = plabels.to(device)
         pdist = pdist.to(device)
 
-        # loss_contrastive = torch.mean(((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
-        #                                (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2))*2
-
-        # loss_contrastive = torch.mean(weights_loss_norm * (((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
-        #                             (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2)))*2
-        
-        # loss_contrastive = torch.mean(binary_weights * (((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
-        #                             (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2)))*2
-
-        loss_contrastive = torch.mean(sigmoid_weights * (((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
+        if loss_type == 0:
+            loss_contrastive = torch.mean(((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
+                                           (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2))*2
+        elif loss_type == 1:
+            loss_contrastive = torch.mean(weights_loss_batchnorm * (((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
+                                        (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2)))*2
+        elif loss_type == 2:
+            loss_contrastive = torch.mean(binary_weights * (((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
+                                        (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2)))*2
+        elif loss_type == 3:
+            loss_contrastive = torch.mean(sigmoid_weights * (((1-ppost)**self.alpha)*(1 - plabels) * torch.pow(pdist, 2) +
                                     (ppost**self.alpha) * plabels * torch.pow(torch.clamp(self.margin - pdist, min=0.0), 2)))*2
 
         pred_sim = torch.exp(-pdist)
         
-        return loss_contrastive, 1-plabels, pred_sim, weights_loss, weights_loss_norm, binary_weights, sigmoid_weights, len(weights_loss), idx
-
+        return loss_contrastive, 1-plabels, pred_sim, weights_loss, weights_loss_batchnorm, binary_weights, sigmoid_weights, len(weights_loss)

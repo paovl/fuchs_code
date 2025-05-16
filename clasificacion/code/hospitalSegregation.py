@@ -47,15 +47,15 @@ def write_data(file_path, data):
 
 if '__main__':
     dict_file = 'dict_scores_standar_bagging.pkl'
-    data_dir = "results/RESNET/ELE_1_ELE_4_CORNEA-DENS_0_PAC_0"
-    best_model_dir = "medical_rings3_angles3_fusion5_50epochs"
+    data_dir = "results/SEP/ELE_1_ELE_4_CORNEA-DENS_0_PAC_0"
+    best_model_dir = "medical_rings3_angles3_fusion5_50epochs/no_deactivate_seed0_dseed0_th0.04_a500_sigmoidWeightedLoss(full DB)"
     
     if best_model_dir.find('bio') > 0:
-        csvFile = '../datasets' + '/'+ 'dataset_global' + '/' + 'RESNET' + '/' + 'ransac_TH_1.5_r_45' + '/annotation_biomarkers.csv'
+        csvFile = '../datasets' + '/'+ 'dataset_global' + '/' + 'SEP' + '/' + 'ransac_TH_1.5_r_45' + '/annotation_biomarkers.csv'
     else:
-        csvFile = '../datasets' + '/'+ 'dataset_global' + '/' + 'RESNET' + '/' + 'ransac_TH_1.5_r_45' + '/annotation.csv'
+        csvFile = '../datasets' + '/'+ 'dataset_global' + '/' + 'SEP' + '/' + 'ransac_TH_1.5_r_45' + '/annotation.csv'
 
-    imageDir = '../datasets' + '/'+ 'dataset_global' + '/' + 'RESNET' + '/' + 'ransac_TH_1.5_r_45' + '/data'
+    imageDir = '../datasets' + '/'+ 'dataset_global' + '/' + 'SEP' + '/' + 'ransac_TH_1.5_r_45' + '/data'
 
 
     save_scores_dir = f"{data_dir}/{best_model_dir}/{'hospital_segregation'}"
@@ -82,6 +82,7 @@ if '__main__':
     scores = scores['score']
 
     hospitals_names = full_dataset.dataset['hospital'].unique()
+    print("Hospitals: ", hospitals_names)
     AUCs_per_hospital = []
     scores_per_hospital= []
     labels_per_hospital = []
